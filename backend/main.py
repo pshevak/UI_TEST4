@@ -5,10 +5,14 @@ import glob
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+import time
+import requests
+from typing import Any, Dict, List
 
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+
 
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,6 +29,14 @@ app.add_middleware(
   allow_headers=["*"],
 )
 
+CALFIRE_ALL_URL = "https://incidents.fire.ca.gov/umbraco/api/IncidentApi/List?inactive=true"
+
+FIRES_CACHE: Dict[str, Any] = {
+  "last_refresh": 0.0,
+  "data": []  # List[dict]
+}
+
+CACHE_TTL_SECONDS = 300  # 5 minutes
 
 FIRE_CATALOG: List[Dict] = [
   {
