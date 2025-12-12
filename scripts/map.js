@@ -1084,43 +1084,63 @@ const buildMockScenario = () => {
   };
 };
 
+const CALFIRE_URL = "https://incidents.fire.ca.gov/umbraco/api/IncidentApi/List?inactive=true";
+
+const normalizeCalFire = (x) => ({
+  id: x.UniqueId || x.Id || x.Name,
+  name: x.Name || "Unknown Fire",
+  state: "CA",
+  lat: x.Latitude,
+  lng: x.Longitude,
+  acres: x.AcresBurned,
+  start_date: (x.StartedDateOnly || x.Started || "").slice(0, 10),
+  year: (() => {
+    const d = (x.StartedDateOnly || x.Started || "");
+    const y = d ? parseInt(String(d).slice(0, 4), 10) : NaN;
+    return Number.isFinite(y) ? y : undefined;
+  })(),
+  region: x.Location || x.County || "",
+  percent_contained: x.PercentContained,
+  is_active: x.IsActive,
+  updated: x.Updated,
+  url: x.Url,
+});
+
 const fetchFireCatalog = async (filters = null) => {
   try {
-    // Default to CA if no filters are provided
-    const effectiveFilters = filters || { state: 'CA' };
+    const response = await fetch(CALFIRE_URL);
+    if (!response.ok) throw new Error(`CAL FIRE fetch failed: ${response.status}`);
 
-    let url = `${API_BASE_URL}/api/fires`;
-    const params = new URLSearchParams();
+    const raw = await response.json();
+    let fires = raw
+      .filter((x) => x.Latitude != null && x.Longitude != null)
+      .map(normalizeCalFire);
 
-    if (effectiveFilters?.state) params.append('state', effectiveFilters.state);
-    if (effectiveFilters?.year) params.append('year', effectiveFilters.year);
-
-    if (params.toString()) url += `?${params.toString()}`;
-
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('Failed to load fire catalog');
-
-    const data = await response.json();
-
-    // ✅ Your backend returns a LIST, not { fires: [...] }
-    if (Array.isArray(data)) {
-      fireCatalog = data.map((fire) => ({
-        ...fire,
-        year:
-          fire.startDate ? new Date(fire.startDate).getFullYear()
-          : fire.start_date ? new Date(fire.start_date).getFullYear()
-          : fire.year,
-      }));
+    // Apply your existing filters (state/year)
+    if (filters?.state) {
+      const s = filters.state.toUpperCase();
+      fires = fires.filter((f) => (f.state || "").toUpperCase() === s);
     } else {
-      fireCatalog = [];
+      // default to CA
+      fires = fires.filter((f) => (f.state || "").toUpperCase() === "CA");
     }
-  } catch (error) {
-    console.warn('Using fallback fire catalog', error);
-    fireCatalog = [...FALLBACK_FIRES];
-  }
 
-  return fireCatalog;
+    if (filters?.year) {
+      fires = fires.filter((f) => f.start_date && parseInt(f.start_date.slice(0, 4), 10) === filters.year);
+    }
+
+    // “Recent” = sort by updated desc, fallback to start_date
+    fires.sort((a, b) => String(b.updated || b.start_date || "").localeCompare(String(a.updated || a.start_date || "")));
+
+    fireCatalog = fires;
+    return fireCatalog;
+  } catch (e) {
+    console.warn("Using FALLBACK_FIRES (CAL FIRE blocked/unreachable):", e);
+    fireCatalog = [...FALLBACK_FIRES];
+    return fireCatalog;
+  }
 };
+
 
 
 const fetchScenario = async () => {
