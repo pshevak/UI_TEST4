@@ -1086,30 +1086,30 @@ const buildMockScenario = () => {
 
 const fetchFireCatalog = async (filters = null) => {
   try {
+    // Default to CA if no filters are provided
+    const effectiveFilters = filters || { state: 'CA' };
+
     let url = `${API_BASE_URL}/api/fires`;
     const params = new URLSearchParams();
-    
-    if (filters) {
-      if (filters.state) {
-        params.append('state', filters.state);
-      }
-      if (filters.year) {
-        params.append('year', filters.year);
-      }
-    }
-    
-    if (params.toString()) {
-      url += `?${params.toString()}`;
-    }
-    
+
+    if (effectiveFilters?.state) params.append('state', effectiveFilters.state);
+    if (effectiveFilters?.year) params.append('year', effectiveFilters.year);
+
+    if (params.toString()) url += `?${params.toString()}`;
+
     const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to load fire catalog');
+
     const data = await response.json();
-    if (Array.isArray(data.fires) && data.fires.length) {
-      fireCatalog = data.fires.map((fire) => ({
+
+    // ✅ Your backend returns a LIST, not { fires: [...] }
+    if (Array.isArray(data)) {
+      fireCatalog = data.map((fire) => ({
         ...fire,
-        year: fire.startDate ? new Date(fire.startDate).getFullYear() : 
-              (fire.start_date ? new Date(fire.start_date).getFullYear() : undefined),
+        year:
+          fire.startDate ? new Date(fire.startDate).getFullYear()
+          : fire.start_date ? new Date(fire.start_date).getFullYear()
+          : fire.year,
       }));
     } else {
       fireCatalog = [];
@@ -1118,10 +1118,10 @@ const fetchFireCatalog = async (filters = null) => {
     console.warn('Using fallback fire catalog', error);
     fireCatalog = [...FALLBACK_FIRES];
   }
-  
-  // Return the catalog - don't render here
+
   return fireCatalog;
 };
+
 
 const fetchScenario = async () => {
   const params = new URLSearchParams({
