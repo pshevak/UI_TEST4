@@ -1907,36 +1907,31 @@ if (els.searchBtn) {
     };
     
     // Fetch filtered fires
-    const filteredFires = await fetchFireCatalog(filters);
-    
-    // Sort filtered results by year descending (newest first)
-    const sortedFilteredFires = [...filteredFires].sort((a, b) => {
-      const getYear = (fire) => {
-        const dateStr = fire.start_date || fire.startDate || '';
-        if (dateStr) {
-          const year = parseInt(dateStr.split('-')[0]);
-          return isNaN(year) ? 0 : year;
-        }
-        return 0;
-      };
-      
-      const yearA = getYear(a);
-      const yearB = getYear(b);
-      
-      if (yearA === yearB) {
-        const dateA = a.start_date || a.startDate || '';
-        const dateB = b.start_date || b.startDate || '';
-        return dateB.localeCompare(dateA);
-      }
-      
-      return yearB - yearA; // Descending order (newest first)
-    });
-    
-    console.log('Filtered fires (sorted by year descending):', sortedFilteredFires.map(f => `${f.name} (${f.start_date || f.startDate})`));
-    
-    // Display filtered results (don't update map)
-    renderFireList(sortedFilteredFires);
-    renderFirePins(sortedFilteredFires);
+    // Fetch fires for the selected state (backend always returns CA anyway, but keep state filter here)
+const allFires = await fetchFireCatalog({ state: stateCode });
+
+// Filter by selected year LOCALLY (use helper that checks start_date OR updated)
+let results = [...allFires];
+if (filters.year) {
+  results = results.filter((f) => getFireYear(f) === filters.year);
+}
+
+// Sort: updated desc, fallback to start_date
+results.sort((a, b) =>
+  String(b.updated || b.start_date || b.startDate || '').localeCompare(
+    String(a.updated || a.start_date || a.startDate || '')
+  )
+);
+
+console.log(
+  'Filtered fires:',
+  results.map((f) => `${f.name} (${getFireYear(f)})`)
+);
+
+// Display results
+renderFireList(results);
+renderFirePins(results);
+
   });
 }
 
