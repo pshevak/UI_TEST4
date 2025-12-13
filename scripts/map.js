@@ -1084,7 +1084,7 @@ const buildMockScenario = () => {
   };
 };
 
-const CALFIRE_URL = "https://incidents.fire.ca.gov/umbraco/api/IncidentApi/List?inactive=true";
+const CALFIRE_URL = "https://terranova.prajaktashevakari.workers.dev/";
 
 const normalizeCalFire = (x) => ({
   id: x.UniqueId || x.Id || x.Name,
