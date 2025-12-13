@@ -29,7 +29,7 @@ app.add_middleware(
   allow_headers=["*"],
 )
 
-CALFIRE_ALL_URL = "https://incidents.fire.ca.gov/umbraco/api/IncidentApi/List?inactive=true"
+CALFIRE_ALL_URL = "https://terranova.prajaktashevakari.workers.dev/"
 
 FIRES_CACHE: Dict[str, Any] = {
   "last_refresh": 0.0,
