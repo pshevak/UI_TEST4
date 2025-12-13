@@ -192,6 +192,14 @@ const debounce = (fn, delay = 350) => {
 
 const formatNumber = (value) => value.toLocaleString();
 
+const getFireYear = (fire) => {
+  const dateStr = fire.start_date || fire.startDate || fire.updated || '';
+  if (!dateStr) return null;
+  const y = parseInt(String(dateStr).slice(0, 4), 10);
+  return Number.isFinite(y) ? y : null;
+};
+
+
 const setPriorityDisplays = () => {
   Object.entries(state.priorities).forEach(([key, value]) => {
     const target = els.priorityValues[key];
@@ -1125,9 +1133,9 @@ const fetchFireCatalog = async (filters = null) => {
       fires = fires.filter((f) => (f.state || "").toUpperCase() === "CA");
     }
 
-    if (filters?.year) {
-      fires = fires.filter((f) => f.start_date && parseInt(f.start_date.slice(0, 4), 10) === filters.year);
-    }
+    //if (filters?.year) {
+      //fires = fires.filter((f) => f.start_date && parseInt(f.start_date.slice(0, 4), 10) === filters.year);
+    //}
 
     // “Recent” = sort by updated desc, fallback to start_date
     fires.sort((a, b) => String(b.updated || b.start_date || "").localeCompare(String(a.updated || a.start_date || "")));
