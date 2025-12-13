@@ -78,16 +78,31 @@ const state = {
   selectedYear: null,
 };
 
-// Initialize year dropdown (1994-2025)
-const initializeYearDropdown = () => {
+// Initialize year dropdown (derived from loaded fire catalog when available)
+const initializeYearDropdown = (years = null) => {
   if (!els.yearSelect) return;
-  
-  for (let year = 2025; year >= 1994; year--) {
+
+  // Preserve the first "Select year" option.
+  const first = els.yearSelect.querySelector('option[value=""]');
+  els.yearSelect.innerHTML = '';
+  if (first) els.yearSelect.appendChild(first);
+  else {
     const option = document.createElement('option');
-    option.value = year.toString();
-    option.textContent = year.toString();
+    option.value = '';
+    option.textContent = 'Select year';
     els.yearSelect.appendChild(option);
   }
+
+  const yearList = Array.isArray(years) && years.length
+    ? [...new Set(years)].filter((y) => Number.isFinite(y)).sort((a, b) => b - a)
+    : Array.from({ length: 2025 - 1994 + 1 }, (_, i) => 2025 - i);
+
+  yearList.forEach((year) => {
+    const option = document.createElement('option');
+    option.value = String(year);
+    option.textContent = String(year);
+    els.yearSelect.appendChild(option);
+  });
 };
 
 // US States data for autocomplete (frontend only)
@@ -193,6 +208,7 @@ const debounce = (fn, delay = 350) => {
 const formatNumber = (value) => value.toLocaleString();
 
 const getFireYear = (fire) => {
+  if (fire && typeof fire.year === 'number') return fire.year;
   const dateStr = fire.start_date || fire.startDate || fire.updated || '';
   if (!dateStr) return null;
   const y = parseInt(String(dateStr).slice(0, 4), 10);
@@ -1092,58 +1108,60 @@ const buildMockScenario = () => {
   };
 };
 
-const CALFIRE_URL = "https://terranova.prajaktashevakari.workers.dev/";
+// Master dataset-backed catalog (static, no login / no worker).
+// Place the generated file at: /data/fires_master.json
+const MASTER_FIRES_URL = 'data/fires_master.json';
 
-const normalizeCalFire = (x) => ({
-  id: x.UniqueId || x.Id || x.Name,
-  name: x.Name || "Unknown Fire",
-  state: "CA",
-  lat: x.Latitude,
-  lng: x.Longitude,
-  acres: x.AcresBurned,
-  start_date: (x.StartedDateOnly || x.Started || "").slice(0, 10),
-  year: (() => {
-    const d = (x.StartedDateOnly || x.Started || "");
-    const y = d ? parseInt(String(d).slice(0, 4), 10) : NaN;
-    return Number.isFinite(y) ? y : undefined;
-  })(),
-  region: x.Location || x.County || "",
-  percent_contained: x.PercentContained,
-  is_active: x.IsActive,
-  updated: x.Updated,
-  url: x.Url,
-});
+const normalizeMasterFire = (x) => {
+  // Defensive parsing for Github Pages (all JSON values are already normalized, but keep this safe)
+  const lat = x.lat != null ? Number(x.lat) : null;
+  const lng = x.lng != null ? Number(x.lng) : null;
+  const acres = x.acres != null ? Number(x.acres) : null;
+  const year = x.year != null ? Number(x.year) : null;
+  return {
+    id: String(x.id || x.fire_id || ''),
+    name: String(x.name || 'Unknown Fire'),
+    state: String(x.state || ''),
+    lat: Number.isFinite(lat) ? lat : null,
+    lng: Number.isFinite(lng) ? lng : null,
+    acres: Number.isFinite(acres) ? acres : null,
+    year: Number.isFinite(year) ? year : null,
+    // Keep a simple "region" label for the left panel (zip/event id is ok).
+    region: String(x.region || ''),
+    // Optional: used by some existing UI sorting logic
+    start_date: String(x.date || ''),
+    updated: String(x.date || ''),
+  };
+};
 
 const fetchFireCatalog = async (filters = null) => {
   try {
-    const response = await fetch(CALFIRE_URL);
-    if (!response.ok) throw new Error(`CAL FIRE fetch failed: ${response.status}`);
-
+    const response = await fetch(MASTER_FIRES_URL, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Master fires fetch failed: ${response.status}`);
     const raw = await response.json();
-    let fires = raw
-      .filter((x) => x.Latitude != null && x.Longitude != null)
-      .map(normalizeCalFire);
+    let fires = (raw || []).map(normalizeMasterFire).filter((f) => f.id);
 
-    // Apply your existing filters (state/year)
+    // Filter by state/year if provided
     if (filters?.state) {
-      const s = filters.state.toUpperCase();
-      fires = fires.filter((f) => (f.state || "").toUpperCase() === s);
-    } else {
-      // default to CA
-      fires = fires.filter((f) => (f.state || "").toUpperCase() === "CA");
+      const s = String(filters.state).toUpperCase();
+      fires = fires.filter((f) => String(f.state).toUpperCase() === s);
+    }
+    if (filters?.year) {
+      fires = fires.filter((f) => getFireYear(f) === filters.year);
     }
 
-    //if (filters?.year) {
-      //fires = fires.filter((f) => f.start_date && parseInt(f.start_date.slice(0, 4), 10) === filters.year);
-    //}
-
-    // “Recent” = sort by updated desc, fallback to start_date
-    fires.sort((a, b) => String(b.updated || b.start_date || "").localeCompare(String(a.updated || a.start_date || "")));
+    // "Recent" = sort by year desc, then by acres desc (date isn't always meaningful in MTBS exports)
+    fires.sort((a, b) => {
+      const ya = getFireYear(a) || 0;
+      const yb = getFireYear(b) || 0;
+      if (yb !== ya) return yb - ya;
+      return (b.acres || 0) - (a.acres || 0);
+    });
 
     fireCatalog = fires;
     return fireCatalog;
   } catch (e) {
-    console.warn("Using FALLBACK_FIRES (CAL FIRE blocked/unreachable):", e);
+    console.warn('Using FALLBACK_FIRES (master dataset missing/unreachable):', e);
     fireCatalog = [...FALLBACK_FIRES];
     return fireCatalog;
   }
@@ -1935,44 +1953,23 @@ renderFirePins(results);
   });
 }
 
-// Initialize year dropdown on page load
-initializeYearDropdown();
-
-// Load top 4 most recent fires by default (sorted by recency)
+// Load top 4 fires by default from the master dataset
 fetchFireCatalog().then((allFires) => {
-  // Backend already sorts by date, but ensure we sort by year descending (newest first)
+  // Populate year dropdown based on the dataset
+  initializeYearDropdown(allFires.map(getFireYear).filter((y) => y != null));
+
+  // Master catalog is already sorted (year desc, acres desc), but keep this defensive.
   const sortedFires = [...allFires].sort((a, b) => {
-    // Extract year from date string (format: YYYY-MM-DD)
-    const getYear = (fire) => {
-      const dateStr = fire.start_date || fire.startDate || '';
-      if (dateStr) {
-        const year = parseInt(dateStr.split('-')[0]);
-        return isNaN(year) ? 0 : year;
-      }
-      return 0;
-    };
-    
-    const yearA = getYear(a);
-    const yearB = getYear(b);
-    
-    // If same year, sort by full date
-    if (yearA === yearB) {
-      const dateA = a.start_date || a.startDate || '';
-      const dateB = b.start_date || b.startDate || '';
-      return dateB.localeCompare(dateA); // Newest first
-    }
-    
-    // Sort by year descending (newest first)
-    return yearB - yearA;
+    const ya = getFireYear(a) || 0;
+    const yb = getFireYear(b) || 0;
+    if (yb !== ya) return yb - ya;
+    return (b.acres || 0) - (a.acres || 0);
   });
-  
+
   const top4Fires = sortedFires.slice(0, 4);
-  console.log('Top 4 fires (sorted by year descending):', top4Fires.map(f => `${f.name} (${f.start_date || f.startDate})`));
-  
   renderFireList(top4Fires);
   renderFirePins(top4Fires);
-  
-  // Load scenario for first fire (newest) if available
+
   if (top4Fires.length > 0) {
     state.fireId = top4Fires[0].id;
     loadScenario();
